@@ -39,5 +39,54 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-    // Put your code here:
+    // Instruction Decode
+    // A Instruction (instruction[15]=0)
+    //    instruction[0..14] = address
+
+    // C Instruction (instruction[15]=1)
+    //    instruction[13..14] = unused
+    //    instruction[6..12] = computation
+    //       instruction[12] = a  = compute with a (otherwise memory)
+    //       instruction[11] = c1 = zx (zero x)
+    //       instruction[10] = c2 = nx (negate x)
+    //       instruction[9]  = c3 = zy (zero y)
+    //       instruction[8]  = c4 = ny (negate y)
+    //       instruction[7]  = c5 = f (0=&, 1=+)
+    //       instruction[6]  = c6 = no (negate out)
+    //    instruction[3..5] = destination
+    //       instruction[5] = d1 = A register
+    //       instruction[4] = d2 = D register
+    //       instruction[3] = d3 = Memory
+    //    instruction[0..2] = jump
+    //       instruction[2] = j1 = out < 0
+    //       instruction[1] = j2 = out = 0
+    //       instruction[0] = j3 = out > 0
+
+    // Destination Logic
+    Not(in=instruction[15], out=aInstr);
+    Or(a=aInstr, b=instruction[5], out=loadA);
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    ARegister(in=aIn, load=loadA, out=aOut, out[0..14]=addressM);
+    DRegister(in=dIn, load=loadD, out=dOut);
+
+    // Jump logic
+    Or(a=ng, b=zr, out=le);
+    Not(in=le, out=pos);
+    And(a=instruction[2], b=ng,  out=jlt);
+    And(a=instruction[1], b=zr,  out=jeq);
+    And(a=instruction[0], b=pos, out=jgt);
+    Or(a=jlt,  b=jgt, out=jmp0);
+    Or(a=jmp0, b=jeq, out=jmp1);
+    And(a=instruction[15], b=jmp1, out=loadPC);
+    PC(in=aOut, load=loadPC, inc=true, reset=reset, out[0..14]=pc);
+
+    Mux16(a=instruction, b=dIn, sel=instruction[15], out=aIn);
+    Mux16(a=aOut, b=inM, sel=instruction[12], out=amOut);
+
+    ALU(x=dOut, y=amOut,
+        zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8],
+        f=instruction[7], no=instruction[6],
+       out=outM, out=dIn, zr=zr, ng=ng);
 }
