@@ -1,0 +1,9 @@
+[package]
+name = "hack-rs"
+version = "0.1.0"
+authors = ["Paul Sbarra <Sbarra.Paul@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+lazy_static = "1.3"
+nom = "5.0"
