@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -47,13 +48,13 @@ type jumpType struct {
 const t binBool = true
 const f binBool = false
 
-var destinations map[rune]destType = map[rune]destType{
+var destinations = map[rune]destType{
 	'A': aDest,
 	'M': mDest,
 	'D': dDest,
 }
 
-var commands map[string]compType = map[string]compType{
+var commands = map[string]compType{
 	"0":   {a: f, c1: t, c2: f, c3: t, c4: f, c5: t, c6: f},
 	"1":   {a: f, c1: t, c2: t, c3: t, c4: t, c5: t, c6: t},
 	"-1":  {a: f, c1: t, c2: t, c3: t, c4: f, c5: t, c6: f},
@@ -84,7 +85,7 @@ var commands map[string]compType = map[string]compType{
 	"D|M": {a: t, c1: f, c2: t, c3: f, c4: t, c5: f, c6: t},
 }
 
-var jumps map[string]jumpType = map[string]jumpType{
+var jumps = map[string]jumpType{
 	"JGT": {j1: f, j2: f, j3: t},
 	"JEQ": {j1: f, j2: t, j3: f},
 	"JGE": {j1: f, j2: t, j3: t},
@@ -94,7 +95,7 @@ var jumps map[string]jumpType = map[string]jumpType{
 	"JMP": {j1: t, j2: t, j3: t},
 }
 
-var symbols map[string]uint16 = map[string]uint16{
+var preSymbols = map[string]uint16{
 	"SP":     0x0000,
 	"LCL":    0x0001,
 	"ARG":    0x0002,
@@ -170,18 +171,16 @@ func (i *instruction) String() string {
 	return "Unknown Instruction"
 }
 
-var varAddr uint16 = 0x0010
-
-func (i *instruction) toBinary() string {
+func (i *instruction) toBinary(symbols map[string]uint16, varAddr *uint16) string {
 	switch i.cmd {
 	case aCmd:
 		addr, err := strconv.Atoi(i.symbol)
 		if err != nil {
 			symAddr, ok := symbols[i.symbol]
 			if !ok {
-				symAddr = varAddr
+				symAddr = *varAddr
 				symbols[i.symbol] = symAddr
-				varAddr++
+				*varAddr++
 			}
 			addr = int(symAddr)
 		}
@@ -201,38 +200,55 @@ func halt(mesg string) {
 }
 
 func main() {
-	inFile := os.Stdin
-	if len(os.Args) > 1 {
-		var err error
-		if inFile, err = os.Open(os.Args[1]); err != nil {
+
+	for _, asmFile := range os.Args[1:] {
+		ext := filepath.Ext(asmFile)
+		if ext != ".asm" {
+			continue
+		}
+
+		//fmt.Println("Processing:", asmFile)
+		inFile, err := os.Open(asmFile)
+		if err != nil {
 			halt(err.Error())
 		}
-	}
-	defer inFile.Close()
+		defer inFile.Close()
 
-	instrs := make([]*instruction, 0, 32)
-	lines := scanLines(inFile)
-
-	// First-Pass: load symbol table
-	var instrCount uint16
-	for instr := range parse(lines) {
-		switch instr.cmd {
-		case aCmd, cCmd:
-			instrs = append(instrs, instr)
-			instrCount++
-
-		case lCmd:
-			if _, ok := symbols[instr.symbol]; ok {
-				halt(fmt.Sprintf("Symbol (%s) already defined", instr.symbol))
-			}
-			symbols[instr.symbol] = instrCount
+		outFile, err := os.Create(asmFile[:len(asmFile)-len(ext)] + ".hack")
+		if err != nil {
+			halt(err.Error())
 		}
-	}
+		defer outFile.Close()
 
-	// Second-Pass: generate binary
-	for _, instr := range instrs {
-		fmt.Println(instr.toBinary())
-		//fmt.Println(instr)
+		instrs := make([]*instruction, 0, 32)
+		lines := scanLines(inFile)
+
+		// First-Pass: load symbol table
+		symbols := make(map[string]uint16)
+		for k, v := range preSymbols {
+			symbols[k] = v
+		}
+		var instrCount uint16
+		for instr := range parse(lines) {
+			switch instr.cmd {
+			case aCmd, cCmd:
+				instrs = append(instrs, instr)
+				instrCount++
+
+			case lCmd:
+				if _, ok := symbols[instr.symbol]; ok {
+					halt(fmt.Sprintf("Symbol (%s) already defined", instr.symbol))
+				}
+				symbols[instr.symbol] = instrCount
+			}
+		}
+
+		// Second-Pass: generate binary
+		var varAddr uint16 = 0x0010
+		for _, instr := range instrs {
+			outFile.WriteString(instr.toBinary(symbols, &varAddr) + "\n")
+			//fmt.Println(instr)
+		}
 	}
 }
 
